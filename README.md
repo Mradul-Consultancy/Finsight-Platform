@@ -141,16 +141,20 @@ Rather than relying on non-deterministic statistical noise, FinSight designs and
 
 | Anomaly Category | Count | Mathematical Detection Rule & Business Logic | Severity |
 | :--- | :---: | :--- | :---: |
-| **`HIGH_AMOUNT`** | **60** | $\text{amount} > \text{₹500,000}$<br>Identifies single-ticket transactions exceeding configured anti-money laundering (AML) and risk monitoring thresholds. | `HIGH` |
-| **`RAPID_TRANSACTIONS`** | **60** | $\Delta t \le 5\text{ seconds}$ on same `account_id`<br>Evaluated via SQL window function `LAG(transaction_timestamp) OVER (PARTITION BY account_id ORDER BY transaction_timestamp)`. Detects automated velocity bursts, bot scripts, or terminal replay. | `HIGH` |
-| **`LOCATION_MISMATCH`** | **60** | $\text{txn.state} \ne \text{customer.state}$ for `ATM` and `BRANCH`<br>Flags physical card-present transactions occurring in states completely distinct from the customer's home jurisdiction. | `MEDIUM` |
-| **`DUPLICATE`** | **58** | Identical tuple: $(\text{account\_id}, \text{timestamp}, \text{amount}, \text{transaction\_type})$<br>Flags network retry collisions, double charges, and POS gateway synchronization duplicates. | `MEDIUM` |
-| **`INVALID_ACCOUNT`** | **54** | $\text{raw.account\_id} \notin \text{core.accounts}$<br>Orphaned transaction records referencing non-existent accounts. Quarantined to safeguard foreign key integrity. | `CRITICAL` |
-| **`NEGATIVE_BALANCE`** | **50** | $\text{balance\_after} < 0$<br>Identifies ledger reconciliation failures, unauthorized overdrafts, or incorrect sequence processing. | `HIGH` |
+| **`HIGH_AMOUNT`** | **60** | `amount > ₹500,000`<br>Identifies single-ticket transactions exceeding configured anti-money laundering (AML) and risk monitoring thresholds. | `HIGH` |
+| **`RAPID_TRANSACTIONS`** | **60** | `Δt ≤ 5 seconds` on same `account_id`<br>Evaluated via SQL window function `LAG(transaction_timestamp) OVER (PARTITION BY account_id ORDER BY transaction_timestamp)`. Detects automated velocity bursts, bot scripts, or terminal replay. | `HIGH` |
+| **`LOCATION_MISMATCH`** | **60** | `txn.state ≠ customer.state` for `ATM` and `BRANCH`<br>Flags physical card-present transactions occurring in states completely distinct from the customer's home jurisdiction. | `MEDIUM` |
+| **`DUPLICATE`** | **58** | Identical tuple: `(account_id, timestamp, amount, transaction_type)`<br>Flags network retry collisions, double charges, and POS gateway synchronization duplicates. | `MEDIUM` |
+| **`INVALID_ACCOUNT`** | **54** | `raw.account_id ∉ core.accounts`<br>Orphaned transaction records referencing non-existent accounts. Quarantined to safeguard foreign key integrity. | `CRITICAL` |
+| **`NEGATIVE_BALANCE`** | **50** | `balance_after < 0`<br>Identifies ledger reconciliation failures, unauthorized overdrafts, or incorrect sequence processing. | `HIGH` |
 | **TOTAL** | **342** | **Quarantined in `dq.anomalies` — Core Ledger 100% Protected** | — |
 
 ### Data Quality Score Calculation
-$$\text{Data Quality Score} = \left(\frac{\text{Valid Core Records}}{\text{Total Raw Records}}\right) \times 100 = \left(\frac{2,499,658}{2,500,000}\right) \times 100 = \mathbf{99.9863\%}$$
+```text
+Data Quality Score = (Valid Core Records / Total Raw Records) × 100
+                   = (2,499,658 / 2,500,000) × 100
+                   = 99.9863%
+```
 Every execution of the data quality pipeline records an entry in `dq.validation_runs` containing timestamp, record counts, and the achieved DQ score.
 
 ---
@@ -207,14 +211,28 @@ FinSight includes an automated reporting engine ([src/reporting.py](file:///e:/F
 ## 🖥️ User Interfaces & Dashboards
 
 ### 1. Streamlit 5-Page Executive Suite (`:8501`)
+
+![FinSight Streamlit Executive Console](docs/images/finsight_console.png)
+
 - **Page 1 — Executive Overview:** High-level metrics (Total Volume, Liquidity, Failed Txns, Anomalies) + monthly volume and debit/credit charts.
 - **Page 2 — Customer Analytics:** Comparative cohort cards for all 7 segments, balance distributions, and customer counts.
 - **Page 3 — Transaction Analytics:** Multi-filter slice-and-dice by Channel, State, and Transaction Type with merchant category distributions.
 - **Page 4 — Data Quality & Anomalies:** Comprehensive audit view showing the **342 anomalies** breakdown by category, mathematical rule formulas, and recent quarantined records.
 - **Page 5 — Reports & Governance:** One-click download buttons for all 4 Excel workbooks.
 
+---
+
 ### 2. React 19 + TypeScript + Chart.js Dashboard (`:5173`)
-- Modern dark-mode glassmorphism interface with dual-axis Chart.js combo graphs, channel doughnut charts, geographic density rankings, live transaction ledger with client/server pagination, and direct PDF report generation.
+
+<p align="center">
+  <img src="docs/images/dashboard_overview.png" alt="FinSight Modern Executive View" width="49%" />
+  <img src="docs/images/dashboard_kpis.png" alt="FinSight KPI Metric Telemetry" width="49%" />
+</p>
+
+- **Modern Dark-Mode Interface:** Built with glassmorphism design principles, dual-axis Chart.js combo graphs, and channel doughnut charts.
+- **Live Transaction Ledger:** Real-time ledger with pagination, multi-state merchant geographic density rankings, and direct PDF report downloads.
+
+---
 
 ### 3. FastAPI Interactive REST API (`:8002/docs`)
 - Fully typed, OpenAPI/Swagger-documented endpoints exposing KPIs, trends, segment telemetry, paginated transactions, and automated PDF executive briefings.
