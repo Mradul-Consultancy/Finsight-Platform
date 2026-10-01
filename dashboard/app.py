@@ -21,9 +21,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from src.db import engine, DB_DIALECT
+from src.db import engine, DB_DIALECT, ensure_initialized
 from src.config import REPORTS_DIR
 from src.reporting import generate_all_reports
+
+# Guarantee tables and analytical views exist
+ensure_initialized(engine)
 
 # Page configuration
 st.set_page_config(
@@ -63,6 +66,10 @@ def query_db(sql: str) -> pd.DataFrame:
     try:
         return pd.read_sql(sql, engine)
     except Exception as e:
+        err_msg = str(e)
+        if "no such table" in err_msg or "does not exist" in err_msg:
+            # Table or view not yet built
+            return pd.DataFrame()
         st.error(f"Database Query Error: {e}")
         return pd.DataFrame()
 

@@ -6,7 +6,7 @@ Supports both PostgreSQL (production) and SQLite (zero-config local runtime).
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from src.config import POSTGRES_URI, SQLITE_URI
+from src.config import POSTGRES_URI, SQLITE_URI, BASE_DIR
 
 def get_engine() -> tuple[Engine, str]:
     """
@@ -243,6 +243,205 @@ def init_tables(eng: Engine = engine):
                 );
             """))
 
+def init_views(eng: Engine = engine):
+    """Creates the 12 analytical SQL views if not already present."""
+    if DB_DIALECT == "postgresql":
+        views_sql_path = BASE_DIR / "database" / "04_views.sql"
+        if views_sql_path.exists():
+            with open(views_sql_path, "r", encoding="utf-8") as f:
+                sql_script = f.read()
+            with eng.begin() as conn:
+                conn.execute(text(sql_script))
+    else:
+        with eng.begin() as conn:
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_daily_transaction_summary AS
+                SELECT
+                    SUBSTR(transaction_timestamp, 1, 10) AS transaction_date,
+                    COUNT(*) AS transaction_count,
+                    SUM(CASE WHEN transaction_type IN ('DEBIT', 'WITHDRAWAL', 'PAYMENT') THEN amount ELSE 0 END) AS total_debit,
+                    SUM(CASE WHEN transaction_type = 'CREDIT' THEN amount ELSE 0 END) AS total_credit,
+                    AVG(amount) AS avg_transaction_amount
+                FROM core_transactions
+                WHERE status = 'SUCCESS'
+                GROUP BY SUBSTR(transaction_timestamp, 1, 10)
+                ORDER BY transaction_date DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_monthly_transaction_summary AS
+                SELECT
+                    SUBSTR(transaction_timestamp, 1, 7) AS month,
+                    COUNT(*) AS transaction_count,
+                    SUM(amount) AS total_value,
+                    SUM(CASE WHEN transaction_type IN ('DEBIT', 'WITHDRAWAL', 'PAYMENT') THEN amount ELSE 0 END) AS total_debit,
+                    SUM(CASE WHEN transaction_type = 'CREDIT' THEN amount ELSE 0 END) AS total_credit,
+                    AVG(amount) AS avg_transaction
+                FROM core_transactions
+                WHERE status = 'SUCCESS'
+                GROUP BY SUBSTR(transaction_timestamp, 1, 7)
+                ORDER BY month;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_branch_performance AS
+                SELECT
+                    b.branch_id,
+                    b.branch_name,
+                    b.region,
+                    b.city,
+                    COUNT(t.transaction_id) AS transaction_count,
+                    COALESCE(SUM(t.amount), 0) AS transaction_value,
+                    COUNT(DISTINCT a.account_id) AS active_accounts
+                FROM core_branches b
+                JOIN core_accounts a ON b.branch_id = a.branch_id
+                LEFT JOIN core_transactions t ON a.account_id = t.account_id AND t.status = 'SUCCESS'
+                GROUP BY b.branch_id, b.branch_name, b.region, b.city
+                ORDER BY transaction_value DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_customer_segment_performance AS
+                SELECT
+                    cs.segment,
+                    COUNT(DISTINCT c.customer_id) AS customers,
+                    COUNT(t.transaction_id) AS transactions,
+                    COALESCE(SUM(t.amount), 0) AS total_value,
+                    COALESCE(AVG(a.current_balance), 0) AS average_balance,
+                    COALESCE(AVG(t.amount), 0) AS avg_transaction_amount
+                FROM analytics_customer_segments cs
+                JOIN core_customers c ON cs.customer_id = c.customer_id
+                JOIN core_accounts a ON c.customer_id = a.customer_id
+                LEFT JOIN core_transactions t ON a.account_id = t.account_id AND t.status = 'SUCCESS'
+                GROUP BY cs.segment
+                ORDER BY total_value DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_merchant_category_performance AS
+                SELECT
+                    m.merchant_category,
+                    COUNT(t.transaction_id) AS transactions,
+                    COALESCE(SUM(t.amount), 0) AS transaction_value,
+                    COALESCE(AVG(t.amount), 0) AS avg_amount
+                FROM core_merchants m
+                LEFT JOIN core_transactions t ON m.merchant_id = t.merchant_id AND t.status = 'SUCCESS'
+                GROUP BY m.merchant_category
+                ORDER BY transaction_value DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_channel_performance AS
+                SELECT
+                    t.channel,
+                    COUNT(*) AS transaction_count,
+                    SUM(t.amount) AS transaction_value,
+                    AVG(t.amount) AS avg_amount,
+                    ROUND(100.0 * COUNT(*) / (SELECT MAX(1, COUNT(*)) FROM core_transactions WHERE status='SUCCESS'), 2) AS volume_pct
+                FROM core_transactions t
+                WHERE t.status = 'SUCCESS'
+                GROUP BY t.channel
+                ORDER BY transaction_count DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_debit_credit_summary AS
+                SELECT
+                    a.account_id,
+                    c.customer_name,
+                    SUM(CASE WHEN t.transaction_type IN ('DEBIT', 'WITHDRAWAL', 'PAYMENT') THEN t.amount ELSE 0 END) AS total_debit,
+                    SUM(CASE WHEN t.transaction_type = 'CREDIT' THEN t.amount ELSE 0 END) AS total_credit,
+                    SUM(CASE WHEN t.transaction_type = 'CREDIT' THEN t.amount ELSE -t.amount END) AS net_flow
+                FROM core_accounts a
+                JOIN core_customers c ON a.customer_id = c.customer_id
+                LEFT JOIN core_transactions t ON a.account_id = t.account_id AND t.status = 'SUCCESS'
+                GROUP BY a.account_id, c.customer_name;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_active_accounts_summary AS
+                SELECT
+                    a.account_type,
+                    COUNT(CASE WHEN a.account_status = 'ACTIVE' THEN 1 END) AS active_accounts,
+                    COUNT(CASE WHEN a.account_status != 'ACTIVE' THEN 1 END) AS inactive_accounts,
+                    AVG(a.current_balance) AS average_balance,
+                    SUM(a.current_balance) AS total_liquidity
+                FROM core_accounts a
+                GROUP BY a.account_type;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_top_customers AS
+                SELECT
+                    c.customer_id,
+                    c.customer_name,
+                    cs.segment,
+                    COUNT(t.transaction_id) AS transaction_count,
+                    COALESCE(SUM(t.amount), 0) AS total_value,
+                    COALESCE(AVG(t.amount), 0) AS average_transaction
+                FROM core_customers c
+                JOIN analytics_customer_segments cs ON c.customer_id = cs.customer_id
+                JOIN core_accounts a ON c.customer_id = a.customer_id
+                JOIN core_transactions t ON a.account_id = t.account_id AND t.status = 'SUCCESS'
+                GROUP BY c.customer_id, c.customer_name, cs.segment
+                ORDER BY total_value DESC
+                LIMIT 100;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_failed_transactions_summary AS
+                SELECT
+                    SUBSTR(transaction_timestamp, 1, 10) AS transaction_date,
+                    channel,
+                    COUNT(CASE WHEN status != 'SUCCESS' THEN 1 END) AS failure_count,
+                    COUNT(*) AS total_count,
+                    ROUND(100.0 * COUNT(CASE WHEN status != 'SUCCESS' THEN 1 END) / MAX(1, COUNT(*)), 2) AS failure_rate
+                FROM core_transactions
+                GROUP BY SUBSTR(transaction_timestamp, 1, 10), channel
+                HAVING COUNT(CASE WHEN status != 'SUCCESS' THEN 1 END) > 0
+                ORDER BY failure_count DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_anomaly_summary AS
+                SELECT
+                    anomaly_type,
+                    severity,
+                    COUNT(*) AS count,
+                    MIN(detected_at) AS first_detected,
+                    MAX(detected_at) AS last_detected
+                FROM dq_anomalies
+                GROUP BY anomaly_type, severity
+                ORDER BY count DESC;
+            """))
+
+            conn.execute(text("""
+                CREATE VIEW IF NOT EXISTS v_customer_risk_summary AS
+                SELECT
+                    c.customer_id,
+                    c.customer_name,
+                    cs.segment,
+                    COUNT(DISTINCT t.transaction_id) AS total_transactions,
+                    COUNT(DISTINCT a.anomaly_id) AS anomaly_count,
+                    COUNT(DISTINCT CASE WHEN t.status != 'SUCCESS' THEN t.transaction_id END) AS failed_transactions,
+                    CASE
+                        WHEN COUNT(DISTINCT a.anomaly_id) > 0 THEN 'HIGH_RISK'
+                        WHEN COUNT(DISTINCT CASE WHEN t.status != 'SUCCESS' THEN t.transaction_id END) > 2 THEN 'ELEVATED'
+                        ELSE 'STANDARD'
+                    END AS risk_rating
+                FROM core_customers c
+                LEFT JOIN analytics_customer_segments cs ON c.customer_id = cs.customer_id
+                LEFT JOIN core_accounts acc ON c.customer_id = acc.customer_id
+                LEFT JOIN core_transactions t ON acc.account_id = t.account_id
+                LEFT JOIN dq_anomalies a ON acc.account_id = a.account_id
+                GROUP BY c.customer_id, c.customer_name, cs.segment;
+            """))
+
+def ensure_initialized(eng: Engine = engine):
+    """Guarantees both tables and views exist on application startup."""
+    init_tables(eng)
+    init_views(eng)
+
 if __name__ == "__main__":
-    init_tables()
-    print("Database tables initialized successfully.")
+    ensure_initialized()
+    print("Database tables and analytical views initialized successfully.")
