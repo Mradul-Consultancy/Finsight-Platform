@@ -54,7 +54,7 @@ export default function App() {
   const loadDashboardData = async () => {
     setError(null);
     try {
-      const [kpiRes, trendsRes, channelRes, volumeRes, locRes, segRes] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchKPIs(),
         fetchTrends(),
         fetchChannelDistribution(),
@@ -63,18 +63,26 @@ export default function App() {
         fetchSegmentOverview(),
       ]);
 
-      setKpis(kpiRes);
-      setTrends(trendsRes.anomalies);
-      setChannelData(channelRes.channels);
-      setMonthlyVolume(volumeRes.months);
-      setTopLocations(locRes.locations);
-      setSegmentOverview(segRes.segments);
+      if (results[0].status === 'fulfilled') setKpis(results[0].value);
+      if (results[1].status === 'fulfilled') setTrends(results[1].value.anomalies);
+      if (results[2].status === 'fulfilled') setChannelData(results[2].value.channels);
+      if (results[3].status === 'fulfilled') setMonthlyVolume(results[3].value.months);
+      if (results[4].status === 'fulfilled') setTopLocations(results[4].value.locations);
+      if (results[5].status === 'fulfilled') setSegmentOverview(results[5].value.segments);
+
+      // Check if ALL failed
+      const allFailed = results.every((r) => r.status === 'rejected');
+      if (allFailed) {
+        setError(
+          'Could not connect to FinSight Backend. Please verify that the server is running and database is initialized.'
+        );
+      }
 
       await loadSegmentData(selectedSegment);
     } catch (err: any) {
       console.error(err);
       setError(
-        'Could not connect to FinSight Backend. Please verify that the server is running on port 8002 and database is initialized.'
+        'Could not connect to FinSight Backend. Please verify that the server is running and database is initialized.'
       );
     } finally {
       setLoading(false);
@@ -88,6 +96,7 @@ export default function App() {
       setSegmentHistory(data.history);
     } catch (err) {
       console.error('Failed to load segment history', err);
+      setSegmentHistory([]);
     } finally {
       setChartLoading(false);
     }

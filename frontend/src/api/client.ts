@@ -1,6 +1,13 @@
 // API client for FinSight – Enhanced Dashboard
 const BASE_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8002/api';
 
+// Helper: fetch with a 15s timeout to handle Render free-tier cold starts
+const fetchWithTimeout = (url: string, timeoutMs = 15000): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+};
+
 // ─── Core KPI Types ───
 export interface KPIData {
   month: string | null;
@@ -78,19 +85,19 @@ export interface SegmentOverview {
 
 // ─── Core Endpoints ───
 export const fetchKPIs = async (): Promise<KPIData> => {
-  const response = await fetch(`${BASE_URL}/kpis`);
+  const response = await fetchWithTimeout(`${BASE_URL}/kpis`);
   if (!response.ok) throw new Error('Failed to fetch KPIs');
   return response.json();
 };
 
 export const fetchTrends = async (): Promise<{ anomalies: Anomaly[] }> => {
-  const response = await fetch(`${BASE_URL}/trends`);
+  const response = await fetchWithTimeout(`${BASE_URL}/trends`);
   if (!response.ok) throw new Error('Failed to fetch trends');
   return response.json();
 };
 
 export const fetchSegmentData = async (segmentId: string): Promise<SegmentData> => {
-  const response = await fetch(`${BASE_URL}/segment/${segmentId}`);
+  const response = await fetchWithTimeout(`${BASE_URL}/segment/${segmentId}`);
   if (!response.ok) throw new Error(`Failed to fetch segment data for ${segmentId}`);
   return response.json();
 };
@@ -101,19 +108,19 @@ export const getReportUrl = (): string => {
 
 // ─── Enhanced Analytics Endpoints ───
 export const fetchChannelDistribution = async (): Promise<{ channels: ChannelData[] }> => {
-  const response = await fetch(`${BASE_URL}/analytics/channel-distribution`);
+  const response = await fetchWithTimeout(`${BASE_URL}/analytics/channel-distribution`);
   if (!response.ok) throw new Error('Failed to fetch channel distribution');
   return response.json();
 };
 
 export const fetchMonthlyVolume = async (): Promise<{ months: MonthlyVolume[] }> => {
-  const response = await fetch(`${BASE_URL}/analytics/monthly-volume`);
+  const response = await fetchWithTimeout(`${BASE_URL}/analytics/monthly-volume`);
   if (!response.ok) throw new Error('Failed to fetch monthly volume');
   return response.json();
 };
 
 export const fetchTopLocations = async (): Promise<{ locations: LocationData[] }> => {
-  const response = await fetch(`${BASE_URL}/analytics/top-locations`);
+  const response = await fetchWithTimeout(`${BASE_URL}/analytics/top-locations`);
   if (!response.ok) throw new Error('Failed to fetch top locations');
   return response.json();
 };
@@ -132,13 +139,13 @@ export const fetchTransactions = async (
     sort_by: sortBy,
     sort_dir: sortDir,
   });
-  const response = await fetch(`${BASE_URL}/analytics/transactions?${params}`);
+  const response = await fetchWithTimeout(`${BASE_URL}/analytics/transactions?${params}`);
   if (!response.ok) throw new Error('Failed to fetch transactions');
   return response.json();
 };
 
 export const fetchSegmentOverview = async (): Promise<{ segments: SegmentOverview[] }> => {
-  const response = await fetch(`${BASE_URL}/analytics/segment-overview`);
+  const response = await fetchWithTimeout(`${BASE_URL}/analytics/segment-overview`);
   if (!response.ok) throw new Error('Failed to fetch segment overview');
   return response.json();
 };
