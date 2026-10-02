@@ -19,8 +19,10 @@ plotly>=5.18
 openpyxl>=3.1
 xlsxwriter>=3.1
 
-# --- Data Generation ---
+# --- Data Generation & Analytics ---
 faker>=20.0
+matplotlib>=3.7
+reportlab>=4.0
 
 # --- Configuration ---
 python-dotenv>=1.0

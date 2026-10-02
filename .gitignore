@@ -31,7 +31,6 @@ wheels/
 backend/*.db
 data/raw/*.csv
 data/generated/*.csv
-bank_transactions_data_2.csv
 
 # Generated reports (reproducible via pipeline)
 reports/*.xlsx
