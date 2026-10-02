@@ -19,11 +19,18 @@ if backend_dir not in sys.path:
 # Import routers – they will register their own paths.
 from .routers import kpis, trends, segment, report, analytics
 
+from fastapi.responses import RedirectResponse
+
 app = FastAPI(
     title="FinSight Credit Decision Engine API",
     version="1.0.0",
     description="FastAPI backend exposing KPI, trend, segment, and PDF‑report endpoints.",
 )
+
+@app.get("/", include_in_schema=False)
+def read_root():
+    """Redirect root requests to the API documentation."""
+    return RedirectResponse(url="/docs")
 
 # ---------------------------------------------------------------------------------
 # CORS configuration – allow the React dev server to call the API.
